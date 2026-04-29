@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -78,20 +79,25 @@ def generate_json(
 
     client = genai.Client(api_key=api_key)
 
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                temperature=0.3,
-                response_mime_type="application/json",
-                max_output_tokens=4096,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
-            ),
-        )
-    except Exception as e:
-        raise LLMError(f"Gemini API call failed: {e}") from e
+    for attempt in range(4):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    temperature=0.3,
+                    response_mime_type="application/json",
+                    max_output_tokens=4096,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+            break
+        except Exception as e:
+            retryable = any(s in str(e) for s in ("429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE"))
+            if not retryable or attempt == 3:
+                raise LLMError(f"Gemini API call failed: {e}") from e
+            time.sleep(2 ** (attempt + 1))
 
     text: Optional[str] = getattr(response, "text", None)
     if not text:
