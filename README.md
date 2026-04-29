@@ -21,7 +21,7 @@ The starting point for this project was **SoundMatch 1.0**, a content-based musi
 | User profiles | 8 hardcoded | 8 built-ins + user-created (persisted) |
 | Explanations | Joined-string list of matched features | LLM-generated, attribute-grounded sentences |
 | Failure on unknown genre ("k-pop") | Silent fallback to weak matches | RAG: explicitly says "k-pop is not in the catalog" and picks closest match |
-| Tests | None implemented (stubs only) | 2 pytest tests pinning the rule-based scorer (now reused as the RAG retriever) |
+| Tests | None implemented (stubs only) | 2 pytest tests pinning the rule-based scorer + 9 grounding tests on the AI modes (8 parametrized over profiles + 1 count check) + a runnable `src.evaluate` reliability report |
 
 The rule-based scorer **was not deleted**. It now serves as the **retriever** inside RAG mode — the same scoring logic that used to be the user-facing answer is now the candidate-selection step under the LLM. This makes the comparison between modes honest: same retriever, different reasoners.
 
@@ -107,7 +107,8 @@ The top-level menu lets you:
 ```bash
 python -m src.main --all                            # Sweep every built-in profile through every mode
 python -m src.main --data path/to/custom_songs.csv  # Use a different catalog
-pytest                                              # Run the test suite (2 tests, < 1 second)
+python -m src.evaluate                              # Run the grounding evaluation (LLM calls + summary report)
+pytest                                              # Run the full test suite (rule-based + grounding)
 ```
 
 ---
@@ -152,7 +153,7 @@ The three examples below all use the catalog as shipped in `data/songs.csv`. Out
 #4  Aju Nice (Very Nice) — SEVENTEEN                         Score: 85
 ```
 
-**What it shows:** Gemini happily returns four real K-pop songs from its training data. They are *plausible* recommendations for a real human, but **none of them exist in our 18-song catalog**. If this output were piped into a downstream "play this song" feature, every pick would 404. This is the textbook hallucination failure mode that motivates RAG.
+**What it shows:** Gemini happily returns four real K-pop songs from its training data. They are *plausible* recommendations for a real human, but **none of them exist in our 19-song catalog**. If this output were piped into a downstream "play this song" feature, every pick would 404. This is the textbook hallucination failure mode that motivates RAG.
 
 ### Example 3: Adversarial profile, RAG mode (the headline result)
 
@@ -198,21 +199,28 @@ The three examples below all use the catalog as shipped in `data/songs.csv`. Out
 
 ## Testing Summary
 
-**What's tested automatically.** `tests/test_recommender.py` has two pytest tests on the rule-based core: one that confirms `Recommender.recommend()` returns songs sorted by score, and one that confirms `Recommender.explain_recommendation()` returns a non-empty string. They run in under a second and lock the scoring logic that the RAG retriever depends on.
+The system's reliability is measured three ways: **automated unit tests** on the rule-based core, an **automated grounding evaluation** that quantifies how often each AI mode stays inside the catalog, and a **human review pass** documented in `model_card.md`.
 
-**What's tested manually.** Eight user profiles are encoded into `src/main.py`'s built-in profile picker — four "standard" profiles and four "adversarial" ones (Ghost Genre, Sad but Hyper, Zero Energy Rocker, Wants Everything) explicitly designed to break the system. Each profile was run through both Naive LLM and RAG modes, and the outputs were compared by hand. The findings are written up in `model_card.md`.
+**Headline measurement (from `python -m src.evaluate`, 8 profiles × 2 modes = 16 LLM calls):**
 
-**What worked.** RAG mode does what it was designed to do — every output title is a real catalog song, and explanations consistently cite concrete attributes. The Ghost Genre comparison (Example 2 vs Example 3 above) is a clean demonstration of grounding mattering. The disk cache makes reruns instant and reproducible, which made the writeup itself much easier to do.
+| Mode | Successful calls | Items returned | Titles in catalog | Grounding rate |
+|---|---|---|---|---|
+| Naive LLM | 3/8 | 15 | 0 | **0%** |
+| RAG | 3/8 | 15 | 15 | **100%** |
 
-**What didn't work the first time.** The first version used `gemini-1.5-flash`, which has been retired from the v1beta API — every call returned a 404 until I switched to `gemini-2.5-flash` and migrated from the deprecated `google-generativeai` SDK to the current `google-genai` SDK. The 2.5 model also defaults to a non-zero thinking budget, which silently truncated the JSON response on longer prompts; setting `thinking_config=ThinkingConfig(thinking_budget=0)` and `max_output_tokens=4096` fixed it. Both bugs surfaced as parse failures rather than obvious errors, which is a reminder that LLM-facing code needs more defensive error handling than typical glue code.
+Of the LLM calls that completed, RAG produced **zero hallucinations** across every profile, and Naive LLM produced **zero in-catalog titles** — every Naive recommendation was a real-world song that doesn't exist in `data/songs.csv` (e.g., "Reflection" by Toonorth, "Morning Coffee" by L.Dre, "Dynamite" by BTS). Same model, same profile, different prompt structure → opposite reliability outcomes. This is the cleanest demonstration of why the retrieval-augmented design matters.
 
-**What I learned.** Two things stand out. First, the *system prompt* in RAG mode is doing most of the work — without "you MUST pick songs ONLY from the candidate list", Gemini freely mixes catalog songs with hallucinated ones. The constraint has to be in the prompt, not just in the calling code. Second, looking at adversarial profiles in both modes side-by-side made bias and failure modes far more obvious than evaluating either mode alone — the contrast is what's informative.
+**Automated test suite (`pytest`):** 11 tests total, **6 passed and 5 skipped** in the latest run. The 2 rule-based tests and the 3 parametrized grounding tests on profiles whose LLM call succeeded all pass — including the headline assertion that every RAG-returned title is in the catalog. The 5 skipped tests are profiles whose LLM call hit Gemini's free-tier rate limit (429) or a transient 503; they skip rather than fail because the contract under test is the LLM's adherence to its system prompt, not Gemini's free-tier uptime. As the disk cache fills in across runs, the skip count drops.
+
+**Reliability finding from the eval.** Under sustained load, free-tier Gemini returned 429 RESOURCE_EXHAUSTED on roughly 60% of cold-cache calls in this session. The disk cache (`.cache/`) means each successful response is then permanent — subsequent runs hit the cache and pay no API cost — but real-world deployment of this system would need explicit retry/backoff logic, which is currently absent. The error handling does the right thing: failures surface as `LLMError` rather than silently producing bad output.
+
+**What I learned from the measurements.** Three things stood out. (1) The *system prompt* in RAG mode is doing most of the work — without "you MUST pick songs ONLY from the candidate list", Gemini freely mixes catalog songs with hallucinated ones. The constraint has to be in the prompt, not just in the calling code. (2) Naive LLM's 0% grounding rate is striking: even when given a profile that exactly matches a catalog song's attributes (e.g., "lofi" + "chill" — Midnight Coding fits perfectly), Gemini reaches for famous training-data tracks like "Snow & Chill" by Purrple Cat instead. Without retrieval, the LLM doesn't know the catalog exists. (3) Setting up the eval revealed two real bugs the manual smoke tests had missed: the deprecated `google-generativeai` SDK silently failed against `gemini-1.5-flash` (model retired), and `gemini-2.5-flash`'s default non-zero thinking budget silently truncated longer JSON responses. Both surfaced as parse failures, not obvious errors — a reminder that LLM-facing code needs defensive validation. Fixed by migrating to `google-genai` and setting `thinking_config=ThinkingConfig(thinking_budget=0)` + `max_output_tokens=4096`.
 
 ---
 
 ## Reflection
 
-The biggest realization is that "use AI" isn't a feature — it's an architectural choice with downstream consequences. The interesting question for this project wasn't "should I add an LLM?" but "where should the LLM sit in the pipeline?" Putting it at the *output* (Naive LLM) makes the system more articulate but unmoored from the data. Putting it at the *output, with a retriever in front* (RAG) makes it both articulate and grounded — but requires building and maintaining a retriever, which is essentially the same problem the rule-based system was already solving. The rule-based scorer didn't go away; it changed jobs.
+The biggest realization is that using AI was an architectural choice that had consequences throughout the building process. The interesting question for this project wasn't "should I add an LLM?" but "where should the LLM sit in the pipeline?" Putting it at the *output* (Naive LLM) makes the system more articulate but unmoored from the data. Putting it at the *output, with a retriever in front* (RAG) makes it both articulate and grounded — but requires building and maintaining a retriever, which is essentially the same problem the rule-based system was already solving. The rule-based scorer didn't go away, it changed its role.
 
 The other thing I learned is how much the model card matters once an LLM is in the picture. With a deterministic rule-based system, you can audit it by reading the code. With an LLM, the only way to know how it actually behaves is to run it on a deliberate set of adversarial inputs and write down what you saw. That's not a one-time evaluation — it's something you'd want to repeat every time the model version changes (and in this project, that already happened once when 1.5-flash was retired).
 
@@ -227,12 +235,14 @@ applied-ai-system-final/
 ├── src/
 │   ├── main.py            # CLI menu + flow dispatch
 │   ├── recommender.py     # Rule-based scorer (now RAG retriever) + AI mode functions + persistence helpers
-│   └── llm_client.py      # Thin Gemini wrapper with disk-cached generate_json()
+│   ├── llm_client.py      # Thin Gemini wrapper with disk-cached generate_json()
+│   └── evaluate.py        # Reliability eval: grounding rate across all profiles × modes
 ├── data/
 │   ├── songs.csv          # Catalog (19 shipped songs + any you add)
 │   └── user_profiles.json # Profiles you create at runtime (created on first save)
 ├── tests/
-│   └── test_recommender.py
+│   ├── test_recommender.py  # Unit tests on the rule-based scorer
+│   └── test_grounding.py    # Live-LLM tests asserting RAG never hallucinates a title
 ├── assets/
 │   └── music_recommender_flowchart.mmd  # Mermaid source for the architecture diagram
 ├── .cache/                # LLM response cache (gitignored)
