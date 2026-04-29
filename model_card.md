@@ -54,15 +54,29 @@ We tested eight user profiles: four standard profiles (High-Energy Pop, Chill Lo
 
 ---
 
-## 8. Future Work  
+## 8. What We Added (AI Augmentation)
 
-If we had more time, here is what we would improve:
+We replaced the rule-based ranker as the user-facing answer with a Gemini-powered pipeline that runs in one of two modes selected from a CLI menu:
 
-- **Use similar genres instead of exact match.** Rock and metal are close, but the system treats them as completely unrelated. A similarity map between genres would fix the filter bubble problem.
-- **Let users set their own danceability target.** Right now it is hardcoded to 0.7 for everyone, which is not fair to users who prefer calm or ambient music.
-- **Add a diversity rule.** Instead of returning 5 songs that all sound the same, mix in at least one song from a different genre or mood so users can discover new music.
-- **Use tempo and valence.** These features exist in the data but are completely ignored by the scoring. Tempo could help match workout playlists, and valence could better capture emotional tone.
-- **Warn users when there is no good match.** The Ghost Genre test showed that the system quietly returns weak results without telling the user their genre is missing. A simple "we could not find songs in your genre" message would go a long way.  
+- **Naive LLM mode** — Gemini receives only the user profile and recommends 5 songs from its training data. It has no access to the catalog. We kept this mode specifically so the comparison with RAG is honest: it shows what an LLM does without grounding.
+- **RAG mode** — The original `recommend_songs` scorer runs first as a *retriever* and returns the top 10 candidates from `data/songs.csv` with their full attributes. Those candidates are injected into Gemini's prompt, and the system instruction forbids inventing titles outside the candidate list and requires every explanation to cite concrete attributes (energy, mood, genre). The output is parsed back to records that exist in our catalog.
+
+This setup is deliberately structured so the rule-based logic isn't thrown away — it becomes the retrieval layer underneath the AI reasoner. Same retriever, different reasoners, fair comparison.
+
+**What changed in behavior:**
+- The Ghost Genre (k-pop) profile, which used to fail silently with weak fallback results, now produces honest output in RAG mode: Gemini explains that k-pop is not in the catalog and picks the closest available match by mood and energy. Naive LLM, by contrast, hallucinates k-pop songs that don't exist in our data — a clean illustration of why retrieval matters.
+- Adversarial profiles like Zero Energy Rocker and Sad but Hyper get more nuanced explanations from RAG that acknowledge the contradiction in the user's preferences, rather than the rule-based scorer's silent overweighting of genre+mood.
+
+**Engineering notes:**
+- Gemini calls are cached to disk (`.cache/`, keyed by `sha256(model + system + prompt)`) so reruns of the same profile+mode produce identical output and don't burn API quota. This keeps screenshots reproducible.
+- `temperature=0.3` and `response_mime_type="application/json"` give us low-variance, parseable output.
+- The `Recommender` class still wraps the rule-based scorer so the existing pytest suite continues to pass.
+
+**Still future work:**
+- Use similar genres instead of exact match in the retriever (rock ↔ metal).
+- Let users set their own danceability target.
+- Add a diversity rule so the top 5 isn't dominated by one cluster.
+- Use tempo and valence in the retriever scoring.
 
 ---
 
