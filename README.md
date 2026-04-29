@@ -6,8 +6,6 @@ This project matters because most public discussion of "AI recommenders" treats 
 
 ## Demo Walkthrough
 
-[![SoundMatch 2.0 demo walkthrough](images/MusicRecommendation.png)](https://www.loom.com/share/0887ccf6e6614092b4b8e7fda65f3181)
-
 ▶ [Watch the demo on Loom](https://www.loom.com/share/0887ccf6e6614092b4b8e7fda65f3181) — end-to-end run, AI mode comparison (Naive vs RAG), and the grounding evaluation.
 
 ---
