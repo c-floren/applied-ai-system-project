@@ -4,6 +4,12 @@ A music recommender that compares a deterministic rule-based scorer against two 
 
 This project matters because most public discussion of "AI recommenders" treats the LLM as a black box. SoundMatch 2.0 puts a transparent rule-based system, a naively prompted LLM, and a properly retrieval-augmented LLM side by side on the same inputs, so the trade-offs can be inspected rather than asserted.
 
+## Demo Walkthrough
+
+[![SoundMatch 2.0 demo walkthrough](images/MusicRecommendation.png)](https://www.loom.com/share/0887ccf6e6614092b4b8e7fda65f3181)
+
+▶ [Watch the demo on Loom](https://www.loom.com/share/0887ccf6e6614092b4b8e7fda65f3181) — end-to-end run, AI mode comparison (Naive vs RAG), and the grounding evaluation.
+
 ---
 
 ## Original Project: SoundMatch 1.0 (Modules 1-3)
