@@ -1,5 +1,6 @@
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, asdict
+from pathlib import Path
 import csv
 import json
 
@@ -85,6 +86,48 @@ def load_songs(csv_path: str) -> List[Dict]:
             }
             songs.append(song)
     return songs
+
+SONG_CSV_FIELDS = [
+    "id", "title", "artist", "genre", "mood",
+    "energy", "tempo_bpm", "valence", "danceability", "acousticness",
+]
+
+
+def append_song(csv_path: str, song: Dict) -> Dict:
+    """
+    Append a single song to the catalog CSV. Auto-assigns id = max(existing) + 1
+    if `song` doesn't include one. Returns the song record actually written.
+    """
+    existing = load_songs(csv_path)
+    next_id = max((s["id"] for s in existing), default=0) + 1
+    record = {**song, "id": song.get("id", next_id)}
+
+    # Re-assert column order for CSV writing.
+    row = {field: record[field] for field in SONG_CSV_FIELDS}
+
+    with open(csv_path, mode="a", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=SONG_CSV_FIELDS)
+        writer.writerow(row)
+    return record
+
+
+def load_custom_profiles(path: str) -> Dict[str, Dict]:
+    """Load user-created profiles from JSON. Returns empty dict if the file is missing."""
+    try:
+        with open(path, mode="r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def save_custom_profile(path: str, name: str, prefs: Dict) -> None:
+    """Persist a user-created profile, merging with any existing custom profiles."""
+    profiles = load_custom_profiles(path)
+    profiles[name] = prefs
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, mode="w", encoding="utf-8") as f:
+        json.dump(profiles, f, indent=2)
+
 
 def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     """

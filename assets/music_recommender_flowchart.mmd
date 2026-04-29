@@ -1,4 +1,30 @@
 flowchart LR
-    A[User Preferences] --> B[Score Each Song]
-    B --> C[Rank by Score]
-    C --> D[Top K Recommendations]
+    User([User]) -->|"picks profile + mode"| CLI["CLI Menu<br/>src/main.py"]
+
+    Catalog[("data/songs.csv<br/>18 songs")]
+
+    CLI -->|"profile only"| Naive["Gemini 2.5-flash<br/>system: recommend from<br/>training data (no catalog)"]
+
+    CLI -->|"profile"| Retriever["Rule-based Scorer<br/>recommend_songs() in<br/>recommender.py · top 10"]
+    Catalog --> Retriever
+    Retriever -->|"top 10 candidates<br/>with attributes"| RAG["Gemini 2.5-flash<br/>system: pick ONLY from<br/>candidate list"]
+
+    Cache[(".cache/<br/>sha256-keyed JSON")]
+    Naive <-.->|"cache lookup"| Cache
+    RAG <-.->|"cache lookup"| Cache
+
+    Naive --> Output["Top-5 songs<br/>+ explanations"]
+    RAG --> Output
+    Output --> Display["CLI output<br/>shown to user"]
+
+    Tests["pytest<br/>tests/test_recommender.py"] -.->|"locks rule-based<br/>scoring logic"| Retriever
+    Adversarial["Adversarial profiles<br/>Ghost Genre, Sad but Hyper,<br/>Zero Energy Rocker, ..."] -.->|"stress-test inputs"| CLI
+    Display -.->|"compare Naive vs RAG<br/>across profiles"| Human([Human Reviewer])
+    Human -.->|"writes findings into<br/>model_card.md"| ModelCard["model_card.md"]
+
+    classDef agent fill:#fde68a,stroke:#d97706,color:#000
+    classDef data fill:#dbeafe,stroke:#2563eb,color:#000
+    classDef eval fill:#dcfce7,stroke:#16a34a,color:#000
+    class Naive,RAG agent
+    class Catalog,Cache,ModelCard data
+    class Tests,Adversarial,Human eval
