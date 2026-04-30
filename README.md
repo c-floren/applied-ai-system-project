@@ -1,10 +1,12 @@
 # SoundMatch 2.0 — AI-Augmented Music Recommender
 
-A music recommender that compares a deterministic rule-based scorer against two LLM-driven approaches — a naive LLM call and a retrieval-augmented (RAG) call — over the same 19-song catalog. The goal is to make the differences between these approaches concrete and visible: where each one wins, where each one fails, and how grounding an LLM in real catalog data changes its behavior.
+A music recommender that compares a deterministic rule-based scorer against two LLM-driven approaches: a naive LLM call and a retrieval-augmented (RAG) call, over a small catalog. The goal is to make the differences between these approaches concrete and visible: where each one wins, where each one fails, and how grounding an LLM in real catalog data changes its behavior.
 
 This project matters because most public discussion of "AI recommenders" treats the LLM as a black box. SoundMatch 2.0 puts a transparent rule-based system, a naively prompted LLM, and a properly retrieval-augmented LLM side by side on the same inputs, so the trade-offs can be inspected rather than asserted.
 
 ## Demo Walkthrough
+
+[![Demo Thumbnail](images/demo_thumbnail.png)](https://www.loom.com/share/0887ccf6e6614092b4b8e7fda65f3181)
 
 ▶ [Watch the demo on Loom](https://www.loom.com/share/0887ccf6e6614092b4b8e7fda65f3181) — end-to-end run, AI mode comparison (Naive vs RAG), and the grounding evaluation.
 
@@ -12,7 +14,7 @@ This project matters because most public discussion of "AI recommenders" treats 
 
 ## Original Project: SoundMatch 1.0 (Modules 1-3)
 
-The starting point for this project was **SoundMatch 1.0**, a content-based music recommender built across CodePath AI110 Modules 1-3. It represented songs and a user "taste profile" as structured data and scored each song on a weighted formula — Genre 40%, Mood 30%, Energy closeness 15%, Danceability 10%, Acousticness 5% — to return the top 5 picks with a bullet-list of reasons. It was deliberately rule-based so the scoring logic could be inspected and explained, but the model card surfaced its central weakness: 70% of the score came from binary string-match on genre and mood, so any user whose preferred genre wasn't in the catalog (the "Ghost Genre" adversarial test) silently fell through to weak results.
+The starting point for this project was **SoundMatch 1.0**, a content-based music recommender that represented songs and a user's "taste profile" as structured data and scored each song on a weighted formula — Genre 40%, Mood 30%, Energy closeness 15%, Danceability 10%, Acousticness 5% — to return the top 5 picks with a bullet-list of reasons. It was deliberately rule-based so the scoring logic could be inspected and explained, but the model card surfaced its central weakness: 70% of the score came from binary string-match on genre and mood, so any user whose preferred genre wasn't in the catalog (the "Ghost Genre" adversarial test) silently fell through to weak results.
 
 ---
 
@@ -224,9 +226,9 @@ Of the LLM calls that completed, RAG produced **zero hallucinations** across eve
 
 ## Reflection
 
-The biggest realization is that using AI was an architectural choice that had consequences throughout the building process. The interesting question for this project wasn't "should I add an LLM?" but "where should the LLM sit in the pipeline?" Putting it at the *output* (Naive LLM) makes the system more articulate but unmoored from the data. Putting it at the *output, with a retriever in front* (RAG) makes it both articulate and grounded — but requires building and maintaining a retriever, which is essentially the same problem the rule-based system was already solving. The rule-based scorer didn't go away, it changed its role.
+The biggest realization is that using AI was an architectural choice that had consequences throughout the building process. The interesting question for this project wasn't "should I add an LLM?" but "where should the LLM sit in the pipeline?" Putting it at the *output* (Naive LLM) makes the system more articulate but unmoored from the data. Putting it at the *output, with a retriever in front* (RAG) makes it both articulate and grounded, but requires building and maintaining a retriever, which is essentially the same problem the rule-based system was already solving. The rule-based scorer didn't go away, it changed its role.
 
-The other thing I learned is how much the model card matters once an LLM is in the picture. With a deterministic rule-based system, you can audit it by reading the code. With an LLM, the only way to know how it actually behaves is to run it on a deliberate set of adversarial inputs and write down what you saw. That's not a one-time evaluation — it's something you'd want to repeat every time the model version changes (and in this project, that already happened once when 1.5-flash was retired).
+The other thing I learned is how much the model card matters once an LLM is in the picture. With a deterministic rule-based system, you can audit it by reading the code. With an LLM, the only way to know how it actually behaves is to run it on a deliberate set of adversarial inputs and write down what you saw. It's something you'd want to repeat every time the model version changes (and in this project, that already happened once when 1.5-flash was retired).
 
 If I had more time, the next steps would be: (1) replace the binary genre/mood matching in the retriever with a similarity score so "rock" can return "metal" candidates and the filter-bubble problem the original SoundMatch 1.0 model card identified is actually fixed; (2) add an evaluator agent that automatically diff's Naive vs RAG output across all profiles and flags hallucinations (titles not in the catalog) without a human in the loop; (3) wire in the Streamlit UI that's already in `requirements.txt` so the side-by-side comparison can be screenshotted in one frame instead of two.
 
